@@ -1,0 +1,77 @@
+name: Build Packages
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.arch }} build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        release:
+          - master
+#          - 23.05.2
+        arch:
+          - x86_64
+#          - mips_24kc
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build
+        #uses: openwrt/gh-action-sdk@main
+        uses: morytyann/gh-action-sdk@main
+        env:
+          ARCH: ${{ matrix.arch }}-${{ matrix.release }}
+          EXTRA_FEEDS: src-git|reticulum|https://github.com/gretel/feed-reticulum.git
+          #INDEX: 1
+          #PACKAGES: rns
+          V: sc
+          PRIVATE_KEY: |
+            -----BEGIN PRIVATE KEY-----
+            MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCqis92XzwjdIGA
+            LnWcBaqrpqUAV56XErZJfOZsdu7u5ySQ3yNAHZAh4FVewr1ykSiNHjDhrHg0s7Xd
+            pffj2xJ3k1bknEF2nHiNfriQhDnMUq2Kj7auE//3UBKnqUPd3te6tXE06t98rz0u
+            fEbGwQoFAUvP9xGkg0RgH8YR5tVCrNt8H4m+mJy8ECSvqi5kjSylZ0lAcJ9X6ZKa
+            PvdQvUDjmMzM7Q1kzAkDSxrEOLort27EA6omPdbvY2s36MP/HsHvP3KfO1UrooOj
+            Zt3C68y9j44zH2qKubVyXbh+808CEfJIn3Q41ScqiPtK4prxPHFJ6VRsB53AZxul
+            Vkm7Nkv7AgMBAAECggEAAdWmb66MlhENx5Q4XapN8LTFN6C5qwRfg6DdVbNd1KIV
+            6Z0M4wauYz7njDJqGU5ockQt4G+bh22bejvr076qjzC9kY4AwkbioRsI3z0c5g7J
+            oSD0pSC/8yggWz9d5IgeJ/sFsb0JFG1KKjLaDA9NjUo7R4xv2yYyWRpeZhjmmGYB
+            GaBh0fNNqhu3O3ZaosTQlIDEYZ7nsTvi8SROsZluDM2A+eDy2jD5/TTh0kDghzMJ
+            5NTCTdf6FvpRLDmH3S2XRISvVvhslVrp75Fv6b7Q85YQrPUtCFdEaaPF7NNjkqXi
+            62W1+oarMg86o+DxThnbrDMVlLr6y1QMSOBoxJI88QKBgQDuUcyi9LSc9364xBdn
+            uvKPIvRbryQkluvdoQOWt505o1u3F2nh85mZm6uQe0ApUmER9oY3O5Ic4UHII1B/
+            cB6CNpcEafZ9L0VlJ27wrF6wo/c9bhXYx5fndxUbhe56+gi3YYdaV5BIUdf6vm4Z
+            zRqC7n9/IEVXr5ybn1wUNxl7uQKBgQC3McY2MPjWOP3e9vr0u/WhwGqeRDaUHzE0
+            yB7AIfoHKp0HaI7jIV9liLbFD7Uazpnee+n5DW2oR1tRi3Fhtsdws/RfzvRkl/ZA
+            FFf6dQ+UgofhSIp7D6RBH+Qv0bATkGcSfklZVwxTJMrkjJtKqD/KBisX0HUaBCOa
+            6/GfjeonUwKBgD4oPYw+8KCD+JwuIMCgRMVKY5tKGc4lQs1iQnJb33j5/2DIjYgu
+            JeCndl7PlpNwdfreZnEfa2N26NZPR56FWp+xpz+yd2R9IMdaOpgxDN1bVo/CF5ab
+            sCXhrDKqguG2NvHFUS0h63LBTeiLJGI8WW7Oz5gTjaJqHhmEvdpT6KSZAoGAI9xV
+            fbQ2cdD0OVpFo/TLT5+X/2VA/dvhSQDHrDq6c/6ugI3CMsoMn5aUmJzLifTZgAjn
+            sz4isidNw/e0+TjLb896Ter4QlzQ8phI5JlXtG2c5cfKe+6C69CvXYEBo8LHuoII
+            H7n/iqMQKI8xsvqeihCNDPtcgPxAcAox4VbpeEsCgYBjNYH1+/ipD245ipPlJp0z
+            qVgsWnApUyFOh0ll3Y80duggU4xhYw8P7RwxtO7Z+/djjZys9iSDF8dH5LYwn4nv
+            yCyjgeFF1FVEKA3OxdfaCw4L0QLNjkBTWSm3hJUqntK3afBuZUtuiddcSY1Mt+qb
+            K4Oi/NoVVCwEJJSxP2YQkA==
+            -----END PRIVATE KEY-----
+
+      - name: Store public key
+        uses: actions/upload-artifact@v4
+        with:
+          name: signing-key
+          path: bin/public.key
+
+      - name: Store packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.arch}}-packages
+          path: bin/packages/${{ matrix.arch }}/packages/*.apk

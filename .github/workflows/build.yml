@@ -1,0 +1,65 @@
+name: Build Packages
+
+on:
+ push:
+   branches: [ main ]
+ pull_request:
+   branches: [ main ]
+ workflow_dispatch:
+
+env:
+  EXTRA_FEEDS: >-
+    src-git|reticulum|https://github.com/gretel/feed-reticulum.git
+  BUILD_PACKAGES: rns
+  BUILD_VERBOSITY: sc
+
+jobs:
+ build:
+   name: ${{ matrix.arch }}-${{ matrix.release }}
+   runs-on: ubuntu-latest
+   strategy:
+     fail-fast: false
+     matrix:
+       release:
+         - master
+       arch:
+         - mips_24kc
+
+   steps:
+     - uses: actions/checkout@v4
+       with:
+         fetch-depth: 0
+
+     - uses: actions/cache@v3
+       with:
+         path: |
+           /builder/build_dir
+           /builder/staging_dir
+           /builder/dl
+         key: ${{ matrix.arch }}-${{ matrix.release }}
+
+     - name: Build
+       continue-on-error: ${{ matrix.release == 'master' }}
+       uses: gretel/openwrt-packager@main
+       env:
+         ARCH: ${{ matrix.arch }}-${{ matrix.release }}
+         EXTRA_FEEDS: ${{ env.EXTRA_FEEDS }}
+         INDEX: ${{ env.BUILD_INDEX }}
+         PACKAGES: ${{ env.BUILD_PACKAGES }}
+         PRIVATE_KEY: ${{ secrets.SIGNING_KEY }}
+         V: ${{ env.BUILD_VERBOSITY }}
+         ARTIFACTS_DIR: ${{ github.workspace }}/artifacts
+         FEED_DIR: ${{ github.workspace }}/feed
+
+     # - name: Setup upterm session
+     #   uses: lhotari/action-upterm@v1
+     #   with:
+     #     limit-access-to-actor: true
+
+     - name: Store artifacts
+       uses: actions/upload-artifact@v4
+       with:
+         name: ${{ matrix.arch }}-${{ matrix.release }}-packages
+         path: |
+           bin/**/*.apk
+           bin/**/*.ipk

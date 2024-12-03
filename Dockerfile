@@ -1,9 +1,12 @@
 ARG CONTAINER=ghcr.io/openwrt/sdk
-ARG ARCH=mips_24kc
-FROM $CONTAINER:$ARCH
+ARG ARCH=x86_64
 
-LABEL "com.github.actions.name"="OpenWrt SDK"
+FROM ${CONTAINER}:${ARCH}
 
-ADD entrypoint.sh /
+LABEL "com.github.actions.name"="OpenWrt Packager"
+LABEL "repository"="https://github.com/gretel/openwrt-packager"
+LABEL "maintainer"="gretel"
+
+COPY entrypoint.sh /entrypoint.sh
 
 ENTRYPOINT ["/entrypoint.sh"]

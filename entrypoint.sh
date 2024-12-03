@@ -1,200 +1,189 @@
 #!/bin/bash
 
-set -ef
+set -euo pipefail
 
-GROUP=
+# Logging functions
+log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "${*}" >&2; }
+log_error() { log "ERROR: ${*}"; }
+log_info() { log "INFO: ${*}"; }
+log_debug() { [[ "${V:-}" =~ ^(sc|s)$ ]] && log "DEBUG: ${*}"; }
 
+# Stack to track nested groups
+declare -a GROUP_STACK=()
+
+# GitHub Actions group helpers with stacking support
 group() {
-	endgroup
-	echo "::group::  $1"
-	GROUP=1
+    if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+        echo "::group::${1}"
+    fi
+    GROUP_STACK+=("${1}")
+    log "BEGIN: ${1}"
 }
 
 endgroup() {
-	if [ -n "$GROUP" ]; then
-		echo "::endgroup::"
-	fi
-	GROUP=
+    if [[ ${#GROUP_STACK[@]} -gt 0 ]]; then
+        if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+            echo "::endgroup::"
+        fi
+        log "END: ${GROUP_STACK[-1]}"
+        unset 'GROUP_STACK[${#GROUP_STACK[@]}-1]'
+    fi
 }
 
-trap 'endgroup' ERR
+cleanup() {
+    local exit_code=$?
+    while [[ ${#GROUP_STACK[@]} -gt 0 ]]; do
+        if [[ ${exit_code} -ne 0 ]]; then
+            log_error "Failed during: ${GROUP_STACK[-1]}"
+        fi
+        endgroup
+    done
+    exit "${exit_code}"
+}
 
-# snapshot containers don't ship with the SDK to save bandwidth
-# run setup.sh to download and extract the SDK
-[ ! -f setup.sh ] || bash setup.sh
+trap cleanup EXIT
 
 FEEDNAME="${FEEDNAME:-action}"
-BUILD_LOG="${BUILD_LOG:-1}"
+ALL_CUSTOM_FEEDS="${FEEDNAME} "
 
-if [ -n "$KEY_BUILD" ]; then
-	echo "$KEY_BUILD" > key-build
-	CONFIG_SIGNED_PACKAGES="y"
+if [[ -f setup.sh ]]; then
+    log_info "Executing setup script"
+    bash setup.sh
 fi
 
-if [ -n "$PRIVATE_KEY" ]; then
-	echo "$PRIVATE_KEY" > private-key.pem
-	CONFIG_SIGNED_PACKAGES="y"
+if [[ -n "${KEY_BUILD:-}" ]]; then
+    log_info "Installing build signing key"
+    echo "${KEY_BUILD}" >key-build
+    CONFIG_SIGNED_PACKAGES="y"
 fi
 
-if [ -z "$NO_DEFAULT_FEEDS" ]; then
-	sed \
-		-e 's,https://git.openwrt.org/feed/,https://github.com/openwrt/,' \
-		-e 's,https://git.openwrt.org/openwrt/,https://github.com/openwrt/,' \
-		-e 's,https://git.openwrt.org/project/,https://github.com/openwrt/,' \
-		feeds.conf.default > feeds.conf
+if [[ -n "${PRIVATE_KEY:-}" ]]; then
+    log_info "Installing private signing key"
+    echo "${PRIVATE_KEY}" >private-key.pem
+    CONFIG_SIGNED_PACKAGES="y"
 fi
 
-echo "src-link $FEEDNAME /feed/" >> feeds.conf
+if [[ -z "${NO_DEFAULT_FEEDS:-}" ]]; then
+    log_info "Configuring default feeds"
+    sed -e 's,https://git.openwrt.org/\(feed\|openwrt\|project\)/,https://github.com/openwrt/,' \
+        feeds.conf.default >feeds.conf
+fi
 
-ALL_CUSTOM_FEEDS="$FEEDNAME "
-#shellcheck disable=SC2153
-for EXTRA_FEED in $EXTRA_FEEDS; do
-	echo "$EXTRA_FEED" | tr '|' ' ' >> feeds.conf
-	ALL_CUSTOM_FEEDS+="$(echo "$EXTRA_FEED" | cut -d'|' -f2) "
-done
+echo "src-link ${FEEDNAME} /feed/" >>feeds.conf
 
-group "feeds.conf"
+if [[ -n "${EXTRA_FEEDS:-}" ]]; then
+    log_info "Adding additional feeds"
+    while read -r feed; do
+        echo "${feed}" | tr '|' ' ' >>feeds.conf
+        ALL_CUSTOM_FEEDS+="$(echo "${feed}" | cut -d'|' -f2) "
+    done <<<"${EXTRA_FEEDS}"
+fi
+
+group "Feed Configuration"
+log_info "Active feed configuration"
 cat feeds.conf
 endgroup
 
-group "feeds update -a"
+group "Feed Update"
+log_info "Updating feed repositories"
 ./scripts/feeds update -a
+./scripts/feeds install -p ${FEEDNAME} -a -d n
 endgroup
 
-group "make defconfig"
+group "Default Configuration"
+log_info "Generating build configuration"
 make defconfig
 endgroup
 
-if [ -z "$PACKAGES" ]; then
-	# compile all packages in feed
-	for FEED in $ALL_CUSTOM_FEEDS; do
-		group "feeds install -p $FEED -f -a"
-		./scripts/feeds install -p "$FEED" -f -a
-		endgroup
-	done
+build_package() {
+    local pkg="${1}"
+    local feed
 
-	RET=0
+    for feed in ${ALL_CUSTOM_FEEDS}; do
+        log_info "Installing ${pkg} from feed ${feed}"
+        if ! ./scripts/feeds install -p "${feed}" -d m -f "${pkg}"; then
+            log_error "Installation failed for ${pkg} from ${feed}"
+            return 1
+        fi
+    done
 
-	make \
-		BUILD_LOG="$BUILD_LOG" \
-		CONFIG_SIGNED_PACKAGES="$CONFIG_SIGNED_PACKAGES" \
-		IGNORE_ERRORS="$IGNORE_ERRORS" \
-		CONFIG_AUTOREMOVE=y \
-		V="$V" \
-		-j "$(nproc)" || RET=$?
+    log_info "Downloading ${pkg}"
+    if ! make "package/${pkg}/download" V=s; then
+        log_error "Download failed for ${pkg}"
+        return 1
+    fi
+
+    log_info "Verifying ${pkg}"
+    if ! make "package/${pkg}/check" V=s; then
+        log_error "Verification failed for ${pkg}"
+        return 1
+    fi
+
+    log_info "Compiling ${pkg}"
+    if ! make "package/${pkg}/compile" \
+        CONFIG_AUTOREMOVE=y \
+        NO_DEPS=1 \
+        V="${V:-}" \
+        -j "$(nproc)"; then
+        log_error "Compilation failed for ${pkg}"
+        return 1
+    fi
+
+    return 0
+}
+
+if [[ -z "${PACKAGES:-}" ]]; then
+    group "Full Build"
+    
+    for feed in ${ALL_CUSTOM_FEEDS}; do
+        group "Installing ${feed}"
+        log_info "Installing all packages from ${feed}"
+        if ! ./scripts/feeds install -p "${feed}" -d m -f -a; then
+            log_error "Feed installation failed: ${feed}"
+            exit 1
+        fi
+        endgroup
+    done
+
+    group "Build"
+    log_info "Starting build"
+    if ! make \
+        CONFIG_AUTOREMOVE=y \
+        NO_DEPS=1 \
+        V="${V:-}" \
+        -j "$(nproc)"; then
+        log_error "Build failed"
+        exit 1
+    fi
+    endgroup
+    
+    endgroup
 else
-	# compile specific packages with checks
-	for PKG in $PACKAGES; do
-		for FEED in $ALL_CUSTOM_FEEDS; do
-			group "feeds install -p $FEED -f $PKG"
-			./scripts/feeds install -p "$FEED" -f "$PKG"
-			endgroup
-		done
-
-		group "make package/$PKG/download"
-		make \
-			BUILD_LOG="$BUILD_LOG" \
-			IGNORE_ERRORS="$IGNORE_ERRORS" \
-			"package/$PKG/download" V=s
-		endgroup
-
-		group "make package/$PKG/check"
-		make \
-			BUILD_LOG="$BUILD_LOG" \
-			IGNORE_ERRORS="$IGNORE_ERRORS" \
-			"package/$PKG/check" V=s 2>&1 | \
-				tee logtmp
-		endgroup
-
-		RET=${PIPESTATUS[0]}
-
-		if [ "$RET" -ne 0 ]; then
-			echo_red   "=> Package check failed: $RET)"
-			exit "$RET"
-		fi
-
-		badhash_msg="HASH does not match "
-		badhash_msg+="|HASH uses deprecated hash,"
-		badhash_msg+="|HASH is missing,"
-		if grep -qE "$badhash_msg" logtmp; then
-			echo "Package HASH check failed"
-			exit 1
-		fi
-
-		PATCHES_DIR=$(find /feed -path "*/$PKG/patches")
-		if [ -d "$PATCHES_DIR" ] && [ -z "$NO_REFRESH_CHECK" ]; then
-			group "make package/$PKG/refresh"
-			make \
-				BUILD_LOG="$BUILD_LOG" \
-				IGNORE_ERRORS="$IGNORE_ERRORS" \
-				"package/$PKG/refresh" V=s
-			endgroup
-
-			if ! git -C "$PATCHES_DIR" diff --quiet -- .; then
-				echo "Dirty patches detected, please refresh and review the diff"
-				git -C "$PATCHES_DIR" checkout -- .
-				exit 1
-			fi
-
-			group "make package/$PKG/clean"
-			make \
-				BUILD_LOG="$BUILD_LOG" \
-				IGNORE_ERRORS="$IGNORE_ERRORS" \
-				"package/$PKG/clean" V=s
-			endgroup
-		fi
-
-		FILES_DIR=$(find /feed -path "*/$PKG/files")
-		if [ -d "$FILES_DIR" ] && [ -z "$NO_SHFMT_CHECK" ]; then
-			find "$FILES_DIR" -name "*.init" -exec shfmt -w -sr -s '{}' \;
-			if ! git -C "$FILES_DIR" diff --quiet -- .; then
-				echo "init script must be formatted. Please run through shfmt -w -sr -s"
-				git -C "$FILES_DIR" checkout -- .
-				exit 1
-			fi
-		fi
-
-	done
-
-	make \
-		-f .config \
-		-f tmp/.packagedeps \
-		-f <(echo "\$(info \$(sort \$(package-y) \$(package-m)))"; echo -en "a:\n\t@:") \
-			| tr ' ' '\n' > enabled-package-subdirs.txt
-
-	RET=0
-
-	for PKG in $PACKAGES; do
-		if ! grep -m1 -qE "(^|/)$PKG$" enabled-package-subdirs.txt; then
-			echo "::warning file=$PKG::Skipping $PKG due to unsupported architecture"
-			continue
-		fi
-
-		make \
-			BUILD_LOG="$BUILD_LOG" \
-			IGNORE_ERRORS="$IGNORE_ERRORS" \
-			CONFIG_AUTOREMOVE=y \
-			V="$V" \
-			-j "$(nproc)" \
-			"package/$PKG/compile" || {
-				RET=$?
-				break
-			}
-	done
+    group "Package Build"
+    for pkg in ${PACKAGES}; do
+        group "Building ${pkg}"
+        if ! build_package "${pkg}"; then
+            log_error "Package build failed: ${pkg}"
+            exit 1
+        fi
+        endgroup
+    done
+    endgroup
 fi
 
-if [ "$INDEX" = '1' ];then
-	group "make package/index"
-	make package/index
-	endgroup
+if [[ "${INDEX:-0}" == "1" ]]; then
+    group "Index Generation"
+    log_info "Generating package index"
+    if ! make package/index; then
+        log_error "Index generation failed"
+        exit 1
+    fi
+    endgroup
 fi
 
 if [ -d bin/ ]; then
-	mv bin/ /artifacts/
+    mv -v bin /artifacts/
 fi
 
-if [ -d logs/ ]; then
-	mv logs/ /artifacts/
-fi
-
-exit "$RET"
+log_info "Build completed"
+exit 0

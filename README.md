@@ -1,72 +1,110 @@
-# OpenWrt GitHub Action SDK
+# OpenWrt Reticulum Package Builder 📡
 
-GitHub CI action to build packages via SDK using official OpenWrt SDK Docker
-containers. This is primary used to test build OpenWrt repositories but can
-also be used for downstream projects maintaining their own package
-repositories.
+GitHub workflow for cross-compiling [Reticulum Network Stack (RNS)](https://github.com/markqvist/Reticulum) packages for OpenWrt. Based on [openwrt/gh-action-sdk](https://github.com/openwrt/gh-action-sdk).
 
-## Example usage
+> **Note**: This is an experimental project currently under active development. The build process and package structure are still being refined and may change significantly. Not recommended for production use yet!
 
-The following YAML code can be used to build all packages of a repository and
-store created `ipk` files as artifacts.
+## Overview 📖
+
+This repository provides GitHub Actions workflows for building OpenWrt packages defined in the [feed-reticulum](https://github.com/gretel/feed-reticulum) repository. While the feed contains the package definitions (Makefiles, patches, and configurations), this workflow handles the automated cross-compilation process.
+
+### Repository Relationship
+- **feed-reticulum**: Contains OpenWrt package definitions for RNS
+- **This repository**: Provides automation to build those packages for different architectures
+
+## Features ✨
+
+- Cross-compiles RNS packages for OpenWrt targets
+- Uses official OpenWrt SDK containers
+- Build artifact collection and release management
+- Package signing support
+
+## How it Works 🔄
+
+1. The workflow fetches the official OpenWrt SDK container for each target architecture
+2. It adds our custom feed (`feed-reticulum`) to the SDK
+3. The packages (`rns` and `lxmf`) are then built using the SDK
+4. Built packages are collected and published as artifacts
+
+## Supported Platforms 🎯
+
+This workflow builds `rns` and `lxmf` packages for:
+
+| Architecture | Example Devices |
+|--------------|----------------|
+| `aarch64_cortex-a53` | GL.iNet MT3000 (Beryl AX), Raspberry Pi 4/Zero 2, MediaTek MT7981/MT7622 |
+| `arm_arm1176jzf-s_vfp` | Raspberry Pi Zero (1st gen) |
+| `mips_24kc` | GL.iNet AR750S (Slate), GL.iNet AR300M, Most Atheros AR71xx/AR72xx/AR93xx |
+| `x86_64` | Generic x86_64 devices, Virtual Machines |
+
+## Usage 🚀
+
+Create a workflow file (e.g. `.github/workflows/build.yml`):
 
 ```yaml
-name: Test Build
+name: Build OpenWrt Packages
 
 on:
+  push:
+    branches: [ main ]
+    tags: ["[0-9]+.[0-9]+.[0-9]+*"]
   pull_request:
-    branches:
-      - main
+  workflow_dispatch:
+
+env:
+  PACKAGES: rns lxmf
+  EXTRA_FEEDS: >-
+    src-git|reticulum|https://github.com/gretel/feed-reticulum.git
 
 jobs:
   build:
-    name: ${{ matrix.arch }} build
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        arch:
-          - x86_64
-          - mips_24kc
-
-    steps:
-      - uses: actions/checkout@v2
-        with:
-          fetch-depth: 0
-
-      - name: Build
-        uses: openwrt/gh-action-sdk@main
-        env:
-          ARCH: ${{ matrix.arch }}
-
-      - name: Store packages
-        uses: actions/upload-artifact@v2
-        with:
-          name: ${{ matrix.arch}}-packages
-          path: bin/packages/${{ matrix.arch }}/packages/*.ipk
+    # ... rest of workflow configuration
 ```
 
-## Environmental variables
+## Configuration ⚙️
 
-The action reads a few env variables:
+### Environment Variables
 
-* `ARCH` determines the used OpenWrt SDK Docker container.
-  E.g. `x86_64` or `x86_64-22.03.2`.
-* `ARTIFACTS_DIR` determines where built packages and build logs are saved.
-  Defaults to the default working directory (`GITHUB_WORKSPACE`).
-* `BUILD_LOG` stores build logs in `./logs`.
-* `CONTAINER` can set other SDK containers than `openwrt/sdk`.
-* `EXTRA_FEEDS` are added to the `feeds.conf`, where `|` are replaced by white
-  spaces.
-* `FEED_DIR` used in the created `feeds.conf` for the current repo. Defaults to
-  the default working directory (`GITHUB_WORKSPACE`).
-* `FEEDNAME` used in the created `feeds.conf` for the current repo. Defaults to
-  `action`.
-* `IGNORE_ERRORS` can ignore failing packages builds.
-* `INDEX` makes the action build the package index. Default is 0. Set to 1 to enable.
-* `KEY_BUILD` can be a private Signify/`usign` key to sign the packages (ipk) feed.
-* `PRIVATE_KEY` can be a private key to sign the packages (apk) feed.
-* `NO_DEFAULT_FEEDS` disable adding the default SDK feeds
-* `NO_REFRESH_CHECK` disable check if patches need a refresh.
-* `NO_SHFMT_CHECK` disable check if init files are formated
-* `PACKAGES` (Optional) specify the list of packages (space separated) to be built
-* `V` changes the build verbosity level.
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PACKAGES` | Space-separated list (`rns lxmf`) | Required |
+| `EXTRA_FEEDS` | Feed URL (`src-git\|reticulum\|url`) | Required |
+| `V` | Build verbosity ('', 's', 'sc') | '' |
+| `PRIVATE_KEY` | Package signing key | Repository Secret |
+| `INDEX` | Generate package index (0/1) | 0 |
+
+## Artifacts 📦
+
+The workflow produces:
+- Built packages (`.ipk` format)
+- Build logs (if enabled)
+- Package index (if enabled)
+
+All artifacts are:
+- Collected from `/artifacts` directory
+- Uploaded to GitHub Actions artifacts
+- Published to GitHub Releases for tagged commits
+
+## Requirements 📋
+
+- GitHub Actions runner with Docker support
+- OpenWrt-compatible package source code
+- Valid package Makefiles in feed
+- Package signing key (optional)
+
+## Development Setup 🛠️
+
+For local development and testing, refer to the [feed-reticulum](https://github.com/gretel/feed-reticulum) repository, which contains detailed instructions for:
+- Setting up the OpenWrt build environment
+- Installing required dependencies
+- Building packages locally
+- Configuration and usage guides
+
+## Credits 🙏
+
+- Mark Qvist - Creator of [Reticulum Network Stack](https://github.com/markqvist/Reticulum)
+- OpenWrt team - [SDK action](https://github.com/openwrt/gh-action-sdk)
+
+## License ⚖️
+
+MIT

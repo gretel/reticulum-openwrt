@@ -1,0 +1,116 @@
+name: Build RNS Packages for OpenWrt
+
+on:
+  push:
+    branches: 
+      - '*'
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+*"
+  pull_request:
+    branches: 
+      - '*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write # needed for cache operations
+
+concurrency: 
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  V: ''
+  PRIVATE_KEY: ${{ secrets.SIGNING_KEY }}
+  EXTRA_FEEDS: >-
+    src-git|reticulum|https://github.com/gretel/feed-reticulum.git
+  PACKAGES: |
+    rns lxmf
+jobs:
+  build:
+    name: ${{ matrix.arch }}-${{ matrix.release }}
+    runs-on: ubuntu-latest
+    environment: ${{ startsWith(github.ref, 'refs/tags/') && 'production' || 'development' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        release:
+          - master
+        arch:
+          - aarch64_cortex-a53    # Modern 64-bit ARM (MT7981, newer RPis)
+          - arm_arm1176jzf-s_vfp  # RPi Zero 1
+          - mips_24kc             # Common in budget routers
+          - x86_64                # Generic "PC"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@v3
+        # with:
+        #   buildkitd-flags: --debug
+
+      - name: Build SDK container
+        uses: docker/build-push-action@v6
+        env:
+          DOCKER_BUILD_SUMMARY: false
+        with:
+          tags: sdk
+          context: .
+          push: false
+          load: true
+          build-args: |
+            CONTAINER=ghcr.io/openwrt/sdk
+            ARCH=${{ matrix.arch }}-${{ matrix.release }}
+          cache-from: |
+            type=gha,scope=${{ matrix.arch }}-${{ matrix.release }}
+          cache-to: |
+            type=gha,mode=max,scope=${{ matrix.arch }}-${{ matrix.release }}
+
+      - name: Prepare artifacts directory
+        run: |
+          mkdir -p artifacts feed
+          sudo chown -R 1000:1000 artifacts feed
+        shell: bash
+
+      - name: Build packages
+        run: |
+          docker run --rm \
+            --env EXTRA_FEEDS \
+            --env IGNORE_ERRORS \
+            --env INDEX \
+            --env KEY_BUILD \
+            --env NO_DEFAULT_FEEDS \
+            --env PACKAGES \
+            --env PRIVATE_KEY \
+            --env V \
+            -v ${{ github.workspace }}/feed:/feed \
+            -v ${{ github.workspace }}/artifacts:/artifacts \
+            sdk
+
+      - name: Debug output locations
+        if: always()
+        run: |
+          find ${{ github.workspace }}/artifacts/bin | sed -e "s/[^-][^\/]*\// |/g" -e "s/|\([^ ]\)/|-\1/"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.arch }}-${{ matrix.release }}-packages
+          path: artifacts/bin/**/*.*pk
+          retention-days: 7
+          compression-level: 0
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/bin/**/rns*.*pk
+            artifacts/bin/**/lxmf*.*pk
+          draft: true
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref, '-') }}
+          fail_on_unmatched_files: true

@@ -1,4 +1,4 @@
-name: Build RNS Packages for OpenWrt
+name: Build Reticulum Packages
 
 on:
   push:
@@ -36,6 +36,7 @@ jobs:
       matrix:
         release:
           - master
+          - 23.05.5
         arch:
           - aarch64_cortex-a53    # Modern 64-bit ARM (MT7981, newer RPis)
           - arm_arm1176jzf-s_vfp  # RPi Zero 1
@@ -104,13 +105,13 @@ jobs:
           retention-days: 7
           compression-level: 0
 
-      - name: Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            artifacts/bin/**/rns*.*pk
-            artifacts/bin/**/lxmf*.*pk
-          draft: true
-          generate_release_notes: true
-          prerelease: ${{ contains(github.ref, '-') }}
-          fail_on_unmatched_files: true
+      # - name: Release
+      #   uses: softprops/action-gh-release@v2
+      #   with:
+      #     files: |
+      #       artifacts/bin/**/rns*.*pk
+      #       artifacts/bin/**/lxmf*.*pk
+      #     draft: true
+      #     generate_release_notes: true
+      #     prerelease: ${{ contains(github.ref, '-') }}
+      #     fail_on_unmatched_files: true

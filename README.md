@@ -76,8 +76,7 @@ jobs:
 ## Artifacts 📦
 
 The workflow produces:
-- Built packages (`.ipk` format)
-- Build logs (if enabled)
+- Built packages
 - Package index (if enabled)
 
 All artifacts are:

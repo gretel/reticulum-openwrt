@@ -44,6 +44,7 @@ jobs:
           - arm_arm1176jzf-s_vfp  # RPi Zero 1
           - mips_24kc             # Common in budget routers
           - x86_64                # Generic "PC"
+          - ath79-generic
           - layerscape-armv7
 
     steps:

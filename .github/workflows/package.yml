@@ -25,7 +25,7 @@ env:
   EXTRA_FEEDS: >-
     src-git|reticulum|https://github.com/gretel/feed-reticulum.git
   PACKAGES: |
-    rns lxmf
+    rns rnspure lxmf nomadnet
   V: ''
 
 jobs:

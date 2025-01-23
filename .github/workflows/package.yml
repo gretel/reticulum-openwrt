@@ -41,11 +41,9 @@ jobs:
           - 23.05.5
         arch:
           - aarch64_cortex-a53    # Modern 64-bit ARM (MT7981, newer RPis)
-          - arm_arm1176jzf-s_vfp  # RPi Zero 1
+          - ath79-generic         # GL-AR300M Series
           - mips_24kc             # Common in budget routers
           - x86_64                # Generic "PC"
-          - ath79-generic
-          - layerscape-armv7
 
     steps:
       - uses: actions/checkout@v4

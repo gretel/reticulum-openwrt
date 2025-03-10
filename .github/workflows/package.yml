@@ -38,12 +38,12 @@ jobs:
       matrix:
         release:
           - master
-          - 23.05.5
+          - 24.10.0
         arch:
           - aarch64_cortex-a53    # Modern 64-bit ARM (MT7981, newer RPis)
           - ath79-generic         # GL-AR300M Series
           - mips_24kc             # Common in budget routers
-          - x86_64                # Generic "PC"
+          - x86_64                # Generic PC/VM
 
     steps:
       - uses: actions/checkout@v4

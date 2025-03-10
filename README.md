@@ -1,109 +1,251 @@
-# OpenWrt Reticulum Package Builder 📡
+# OpenWrt Reticulum Feed 📡
 
-GitHub workflow for cross-compiling [Reticulum Network Stack (RNS)](https://github.com/markqvist/Reticulum) packages for OpenWrt. Based on [openwrt/gh-action-sdk](https://github.com/openwrt/gh-action-sdk).
+This repository contains OpenWrt packages related to the [Reticulum](https://github.com/markqvist/Reticulum) ecosystem. The feed currently provides packages for the [Reticulum Network Stack](https://github.com/markqvist/Reticulum), an open-source cryptography-based networking stack designed for reliable communication over high-latency, low-bandwidth networks.
 
-> **Note**: This is an experimental project currently under active development. The build process and package structure are still being refined and may change significantly. Not recommended for production use yet!
+## Current Status ⚠️
 
-## Overview 📖
+This feed is under active development and not yet ready for general use.
 
-This repository provides GitHub Actions workflows for building OpenWrt packages defined in the [feed-reticulum](https://github.com/gretel/feed-reticulum) repository. While the feed contains the package definitions (Makefiles, patches, and configurations), this workflow handles the automated cross-compilation process.
+We are working on stabilizing the packages and resolving various implementation challenges, particularly around Python module integration in OpenWrt's constrained environment.
 
-### Repository Relationship
-- **feed-reticulum**: Contains OpenWrt package definitions for RNS
-- **This repository**: Provides automation to build those packages for different architectures
+## Available Packages 📦
 
-## Features ✨
+This feed provides the following packages:
 
-- Cross-compiles RNS packages for OpenWrt targets
-- Uses official OpenWrt SDK containers
-- Build artifact collection and release management
-- Package signing support
+### rnspure 🌐
+Pure Python variant of the Reticulum Network Stack with no external dependencies required for installation.
 
-## How it Works 🔄
+### rns 🌐
+The core Reticulum Network Stack implementation with Python dependencies.
 
-1. The workflow fetches the official OpenWrt SDK container for each target architecture
-2. It adds our custom feed (`feed-reticulum`) to the SDK
-3. The packages (`rns` and `lxmf`) are then built using the SDK
-4. Built packages are collected and published as artifacts
+### lxmf 💬
+Lightweight Extensible Message Format implementation for messaging over Reticulum.
 
-## Supported Platforms 🎯
+### nomadnet🕸️
+Terminal-based resilient mesh communications platform built on LXMF and Reticulum.
 
-This workflow builds `rns` and `lxmf` packages for:
+### python3-urwid 🖥️
+Console user interface library required by nomadnet.
 
-| Architecture | Example Devices |
-|--------------|----------------|
-| `aarch64_cortex-a53` | GL.iNet MT3000 (Beryl AX), Raspberry Pi 4/Zero 2, MediaTek MT7981/MT7622 |
-| `arm_arm1176jzf-s_vfp` | Raspberry Pi Zero (1st gen) |
-| `mips_24kc` | GL.iNet AR750S (Slate), GL.iNet AR300M, Most Atheros AR71xx/AR72xx/AR93xx |
-| `x86_64` | Generic x86_64 devices, Virtual Machines |
+Note: The `-src` packages are optional and provide the Python source code, while the standard packages contain only bytecode and metadata as is typical for OpenWrt packages. Most users will only need the standard packages.
 
-## Usage 🚀
+## Prerequisites 📋
 
-Create a workflow file (e.g. `.github/workflows/build.yml`):
+To use this feed, you need:
 
-```yaml
-name: Build OpenWrt Packages
-
-on:
-  push:
-    branches: [ main ]
-    tags: ["[0-9]+.[0-9]+.[0-9]+*"]
-  pull_request:
-  workflow_dispatch:
-
-env:
-  PACKAGES: rns lxmf
-  EXTRA_FEEDS: >-
-    src-git|reticulum|https://github.com/gretel/feed-reticulum.git
-
-jobs:
-  build:
-    # ... rest of workflow configuration
-```
-
-## Configuration ⚙️
-
-### Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `PACKAGES` | Space-separated list (`rns lxmf`) | Required |
-| `EXTRA_FEEDS` | Feed URL (`src-git\|reticulum\|url`) | Required |
-| `V` | Build verbosity ('', 's', 'sc') | '' |
-| `PRIVATE_KEY` | Package signing key | Repository Secret |
-| `INDEX` | Generate package index (0/1) | 0 |
-
-## Artifacts 📦
-
-The workflow produces:
-- Built packages
-- Package index (if enabled)
-
-All artifacts are:
-- Collected from `/artifacts` directory
-- Uploaded to GitHub Actions artifacts
-- Published to GitHub Releases for tagged commits
-
-## Requirements 📋
-
-- GitHub Actions runner with Docker support
-- OpenWrt-compatible package source code
-- Valid package Makefiles in feed
-- Package signing key (optional)
+- A computer running some Debian
+- OpenWrt buildroot environment
+- This feed
 
 ## Development Setup 🛠️
 
-For local development and testing, refer to the [feed-reticulum](https://github.com/gretel/feed-reticulum) repository, which contains detailed instructions for:
-- Setting up the OpenWrt build environment
-- Installing required dependencies
-- Building packages locally
-- Configuration and usage guides
+### System Requirements (Debian/Ubuntu)
 
-## Credits 🙏
+Install required system packages:
+```bash
+sudo apt update && sudo apt install -qy \
+    build-essential \
+    ccache \
+    file \
+    flex \
+    bison \
+    g++ \
+    gawk \
+    gettext \
+    git \
+    libncurses5-dev \
+    libssl-dev \
+    python3-setuptools \
+    rsync \
+    unzip \
+    wget \
+    zlib1g-dev
+```
 
-- Mark Qvist - Creator of [Reticulum Network Stack](https://github.com/markqvist/Reticulum)
-- OpenWrt team - [SDK action](https://github.com/openwrt/gh-action-sdk)
+### OpenWrt Setup
+
+1. Clone OpenWrt repository:
+```bash
+git clone --depth 5 https://git.openwrt.org/openwrt/openwrt.git
+cd openwrt
+```
+
+2. Configure feeds:
+```bash
+# Create feeds configuration if it doesn't exist
+[ ! -f feeds.conf ] && cp feeds.conf.default feeds.conf
+
+# Ensure reticulum feed is properly configured
+if ! grep -q '^src-git reticulum' feeds.conf; then
+    # Comment out any existing reticulum entries
+    sed -i '/src-git reticulum/s/^/#/' feeds.conf
+    # Add our feed
+    echo "src-git reticulum https://github.com/gretel/feed-reticulum.git" >> feeds.conf
+fi
+```
+
+Your `feeds.conf` should look similar to this:
+```
+src-git packages https://git.openwrt.org/feed/packages.git
+src-git luci https://git.openwrt.org/project/luci.git
+src-git reticulum https://github.com/gretel/feed-reticulum.git
+```
+
+3. List using the `feeds` utility to confirm:
+
+```bash
+./scripts/feeds list -s
+packages   src-git  2b999558db0711124f7b5cf4afa201557352f694 https://git.openwrt.org/feed/packages.git
+luci       src-git  e76155d09484602e2b02e84bb8ffafa4848798f0 https://git.openwrt.org/project/luci.git
+reticulum  src-git  3d196e9b824158b9a428892c426e8365dc02c373 https://github.com/gretel/feed-reticulum.git
+```
+
+4. Update and install from all feeds:
+```bash
+./scripts/feeds update -a
+./scripts/feeds install -a
+```
+
+### Configure Target Platform
+
+Before building, configure your target platform/architecture:
+
+```bash
+make menuconfig
+```
+
+Key configuration areas:
+1. Target System (e.g., `x86`, `MediaTek Ralink MIPS`, `Qualcomm Atheros AR7xxx/AR9xxx`)
+2. Subtarget (e.g., `x86_64`, `MT7621`, `generic`)
+3. Target Profile (specific device or generic profile)
+
+Common platforms include:
+```
+Target System                     Subtarget         Example Devices
+────────────────────────────────────────────────────────────────────
+MediaTek Ralink MIPS   (ramips)  MT7621            Ubiquiti EdgeRouter X
+Qualcomm Atheros AR7xxx         generic            GL.iNet GL-AR750S
+x86                             x86_64             Generic PC/VM
+Raspberry Pi                    bcm27xx            Raspberry Pi 4
+```
+
+**Select at minimum**:
+- Target System
+- Subtarget
+- Target Profile (if building for specific device)
+- Package `rns` under `Network -> Reticulum`
+
+Save your configuration and exit menuconfig.
+
+> Backup `.config` file. It get's overwritten easily.
+
+### Building Packages
+
+For a basic configuration:
+```bash
+make defconfig
+```
+
+To build specific packages:
+```bash
+# Clean and rebuild RNS package
+make package/feeds/reticulum/rns/clean
+make package/feeds/reticulum/rns/compile V=s
+make package/index
+```
+
+> `NO_DEPS=1` will skip building dependencies. Building of the `rns` package will fail if the required dependencies have not been built before. It's meant to speed up development iterations.
+
+> `V=s` adds very verbose output logging. Remove for proven builds.
+
+```bash
+make package/feeds/reticulum/rns/compile V=s NO_DEPS=1
+```
+
+### Building All
+
+For a full system build (optional):
+```bash
+make -j$(nproc) world
+```
+
+> This could result in a bootable distribution. No testing has been done yet!
+
+## Package Configuration ⚙️
+
+### RNS Configuration
+
+Basic UCI configuration:
+```bash
+# Enable the service
+uci set rns.main.enabled=1
+uci commit rns
+
+# Start the service
+service rns start
+```
+Configuration directory: `/var/rns`
+
+Configuration file: `/etc/config/rns`
+
+### LXMF Configuration
+
+Basic UCI configuration:
+```bash
+# Enable the service
+uci set lxmf.main.enabled=1
+# Enable propagation node (optional)
+uci set lxmf.main.propagation_node=1
+uci commit lxmf
+
+# Start the service
+service lxmf start
+```
+
+Configuration directory: `/var/rns`
+
+Configuration file: `/etc/config/lxmf`
+
+### Nomadnet Configuration
+
+Basic UCI configuration:
+```bash
+# Enable the service
+uci set nomadnet.main.enabled=1
+uci commit nomadnet
+
+# Start the service
+service nomadnet start
+```
+
+Configuration directory: `/var/rns`
+
+Configuration file: `/etc/config/nomadnet`
+
+### Urwid Configuration
+No configuration required - library package.
+
+## Known Issues ⚡
+
+- [~~Python module import issues related to OpenWrt's bytecode-only packaging~~](https://github.com/markqvist/Reticulum/issues/623)
+- ~~Service initialization requires further testing~~
+- Documentation needs expansion
+- Implementation of systemd and procd service files needs testing
+
+## Contributing 🤝
+
+We welcome contributions to expand the Reticulum ecosystem on OpenWrt. Please ensure your pull requests are well-documented and include appropriate test cases.
 
 ## License ⚖️
 
-MIT
+Each package is released under its respective license:
+- RNS: MIT License
+- LXMF: MIT License
+- Nomadnet: GPL-3.0
+- python3-urwid: LGPL-2.1 or later
+
+## Acknowledgments 🙏
+
+- [Mark Qvist](https://github.com/markqvist) for creating Reticulum Network Stack
+- The OpenWrt team
+- All contributors to the Reticulum ecosystem
